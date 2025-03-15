@@ -1,0 +1,146 @@
+name: build
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  mingw:
+    runs-on: ubuntu-latest
+    env:
+      TARGET: ${{ matrix.arch }}-w64-mingw32
+      RUST_TARGET: ${{ matrix.arch }}-pc-windows-gnu
+      VIRTUAL_ENV: "${{ github.workspace }}/venv"
+      SKIP_SANITY_CHECK: ${{ matrix.skip_sanity_check }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [i686, x86_64]
+        skip_sanity_check: [true, false]
+        include:
+          - arch: i686
+            wine: wine32
+          - arch: x86_64
+            wine: wine64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          rustup target add ${{ env.RUST_TARGET }}
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y g++-mingw-w64 gcc-mingw-w64 meson nasm ninja-build pkgconf ${{ matrix.wine }} wine
+          python -m venv $VIRTUAL_ENV
+          echo "$VIRTUAL_ENV/bin" >> "$GITHUB_PATH"
+          python -m pip --no-cache-dir install ninja
+          pip install git+https://github.com/mesonbuild/meson
+
+      - name: Test wine
+        run: |
+          cat >"test.rs" <<EOF
+          fn main() {
+              println!("wine!");
+          }
+          EOF
+
+          rustc --target ${RUST_TARGET} -C linker=${TARGET}-gcc -o test.exe test.rs
+          wine test.exe
+
+      - name: Build
+        id: build
+        run: |
+          ./build-mingw.sh
+
+      - name: Print meson log
+        if: ${{ failure() && steps.build.outcome == 'failure' }}
+        run: |
+          cat ./build/meson-logs/meson-log.txt
+
+  win32:
+    runs-on: windows-latest
+    env:
+      VS: "C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise"
+      CC: "clang"
+      CXX: "clang++"
+      CC_LD: "lld-link"
+      CXX_LD: "lld-link"
+      WINDRES: "llvm-rc"
+      RUST_LD: "lld-link"
+      RUSTC: "rustc --target x86_64-pc-windows-msvc"
+    steps:
+      - name: Disable autocrlf
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          pip install git+https://github.com/mesonbuild/meson
+
+      - name: Build
+        id: build
+        run: |
+          $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -ne 'C:\Program Files\LLVM\bin' -and `
+                                                             $_ -ne 'C:\Strawberry\c\bin' }) -join ';'
+          Import-Module "$env:VS\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $env:VS -SkipAutomaticLocation -DevCmdArguments "-arch=x64 -host_arch=x64"
+          meson setup build
+          ninja -C build
+
+      - name: Print build log
+        if: ${{ failure() && steps.build.outcome == 'failure' }}
+        run: |
+          cat ./build/meson-logs/meson-log.txt
+
+      - name: Run meson tests
+        id: tests
+        run: |
+          $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -ne 'C:\Program Files\LLVM\bin' -and `
+                                                             $_ -ne 'C:\Strawberry\c\bin' }) -join ';'
+          $env:PATH += ';C:\Program Files\NASM'
+          Import-Module "$env:VS\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $env:VS -SkipAutomaticLocation -DevCmdArguments "-arch=x64 -host_arch=x64"
+          meson test -C build -t 2
+
+      - name: Print meson log
+        if: ${{ failure() && steps.build.outcome == 'failure' }}
+        run: |
+          cat ./build/meson-logs/meson-log.txt
+
+      - name: Run
+        run: |
+          ./build/rust_test.exe
+
+  linux:
+    runs-on: ubuntu-latest
+    env:
+      VIRTUAL_ENV: "${{ github.workspace }}/venv"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get install --no-install-recommends -y gcc rustc python3-pip
+          python -m venv $VIRTUAL_ENV
+          echo "$VIRTUAL_ENV/bin" >> "$GITHUB_PATH"
+          python -m pip --no-cache-dir install ninja
+          pip install git+https://github.com/mesonbuild/meson
+
+      - name: Build
+        id: build
+        run: |
+          meson setup build
+          ninja -C build
+
+      - name: Print meson log
+        if: ${{ failure() && steps.build.outcome == 'failure' }}
+        run: |
+          cat ./build/meson-logs/meson-log.txt
+
+      - name: Run
+        run: |
+          ./build/rust_test
