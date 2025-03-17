@@ -5,6 +5,7 @@ on:
     branches:
       - master
       - rust-fixes
+      - fix14373
 
 jobs:
   mingw:
@@ -36,7 +37,7 @@ jobs:
           python -m venv $VIRTUAL_ENV
           echo "$VIRTUAL_ENV/bin" >> "$GITHUB_PATH"
           python -m pip --no-cache-dir install ninja
-          pip install git+https://github.com/kasper93/meson@rust-fixes
+          pip install git+https://github.com/bonzini/meson@fix14373
 
       - name: Test wine
         run: |
@@ -80,7 +81,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install git+https://github.com/kasper93/meson@rust-fixes
+          pip install git+https://github.com/bonzini/meson@fix14373
 
       - name: Build
         id: build
@@ -129,7 +130,7 @@ jobs:
           python -m venv $VIRTUAL_ENV
           echo "$VIRTUAL_ENV/bin" >> "$GITHUB_PATH"
           python -m pip --no-cache-dir install ninja
-          pip install git+https://github.com/kasper93/meson@rust-fixes
+          pip install git+https://github.com/bonzini/meson@fix14373
 
       - name: Build
         id: build
